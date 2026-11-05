@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Papers and Authors</title>
+<style>
+body{font-family:system-ui,sans-serif;margin:0;background:#f4f5f7;color:#222}
+.wrap{max-width:900px;margin:0 auto;padding:24px 16px}
+.tabs{display:flex;gap:8px;margin:16px 0}
+button{font:inherit;padding:6px 12px;border:1px solid #bbb;background:#fff;border-radius:4px;cursor:pointer}
+button.active,button.primary{background:#1f5f8b;color:#fff;border-color:#1f5f8b}
+button.danger{background:#b3372f;color:#fff;border-color:#b3372f}
+table{width:100%;border-collapse:collapse;background:#fff}
+th,td{text-align:left;padding:8px 10px;border-bottom:1px solid #ddd}
+.bar{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
+.err{background:#fbeceb;color:#b3372f;border:1px solid #b3372f;padding:8px 12px;margin-bottom:10px;border-radius:4px}
+.msg{padding:20px;text-align:center;background:#fff}
+.overlay{position:fixed;inset:0;background:rgba(0,0,0,.4);display:grid;place-items:center;padding:16px}
+.dlg{background:#fff;padding:20px;border-radius:6px;width:100%;max-width:420px}
+label{display:block;margin-bottom:10px}
+input,textarea{display:block;width:100%;padding:6px;margin-top:3px;font:inherit;box-sizing:border-box}
+.foot{display:flex;justify-content:flex-end;gap:8px;margin-top:12px}
+</style>
+</head>
+<body>
+<div id="app" class="wrap">
+  <h1>Papers and Authors</h1>
+  <div class="tabs">
+    <button :class="{active: tab==='papers'}" @click="tab='papers'">Papers</button>
+    <button :class="{active: tab==='authors'}" @click="tab='authors'">Authors</button>
+  </div>
+  <entity-manager v-if="tab==='papers'" key="papers" singular="paper" plural="papers" :ctrl="paperCtrl" :fields="paperFields"></entity-manager>
+  <entity-manager v-else key="authors" singular="author" plural="authors" :ctrl="authorCtrl" :fields="authorFields"></entity-manager>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/vue/3.4.21/vue.global.prod.min.js"></script>
+<script>
+const { createApp, reactive, ref, onMounted } = Vue;
+
+/* ============ MODEL: in-memory storage ============ */
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+class Repository {
+  constructor(seed, fields) {
+    this.rows = seed.map(r => ({ ...r }));
+    this.nextId = seed.length + 1;
+    this.fields = fields;
+  }
+  async _io() { await sleep(400); }
+  validate(d) {
+    for (const f of this.fields)
+      if (f.required && !String(d[f.key] ?? '').trim()) throw new Error(f.label + ' is required.');
+  }
+  _index(id) {
+    const i = this.rows.findIndex(r => r.id === id);
+    if (i < 0) throw new Error('That record no longer exists.');
+    return i;
+  }
+  async all() { await this._io(); return this.rows.map(r => ({ ...r })); }
+  async create(d) {
+    await this._io(); this.validate(d);
+    const row = { ...d, id: this.nextId++ };
+    this.rows.push(row); return { ...row };
+  }
+  async update(id, d) {
+    await this._io(); this.validate(d);
+    const i = this._index(id);
+    this.rows[i] = { ...d, id }; return { ...this.rows[i] };
+  }
+  async remove(id) { await this._io(); this.rows.splice(this._index(id), 1); }
+}
+
+const paperFields = [
+  { key: 'title', label: 'Title', type: 'text', required: true },
+  { key: 'venue', label: 'Venue', type: 'text', required: true },
+  { key: 'year', label: 'Year', type: 'number', required: true }
+];
+const authorFields = [
+  { key: 'name', label: 'Name', type: 'text', required: true },
+  { key: 'email', label: 'Email', type: 'text', required: true },
+  { key: 'affiliation', label: 'Affiliation', type: 'text', required: false }
+];
+
+const paperRepo = new Repository([
+  { id: 1, title: 'Attention Is All You Need', venue: 'NeurIPS', year: 2017 },
+  { id: 2, title: 'A Mathematical Theory of Communication', venue: 'Bell System Technical Journal', year: 1948 }
+], paperFields);
+const authorRepo = new Repository([
+  { id: 1, name: 'Ada Ruiz', email: 'ada.ruiz@example.edu', affiliation: 'Northfield University' },
+  { id: 2, name: 'Kenji Mori', email: 'k.mori@example.org', affiliation: 'Hartwell Institute' }
+], authorFields);
+
+/* ============ CONTROLLER ============ */
+function createController(repo) {
+  const s = reactive({ items: [], loaded: false, loading: false, saving: false, error: '', formError: '' });
+  async function load() {
+    s.loading = true; s.error = '';
+    try { s.items = await repo.all(); s.loaded = true; }
+    catch (e) { s.error = e.message; }
+    finally { s.loading = false; }
+  }
+  async function save(id, data) {
+    s.saving = true; s.formError = '';
+    try {
+      if (id == null) s.items.push(await repo.create(data));
+      else { const u = await repo.update(id, data); s.items = s.items.map(x => x.id === id ? u : x); }
+      return true;
+    } catch (e) { s.formError = e.message; return false; }
+    finally { s.saving = false; }
+  }
+  async function remove(id) {
+    s.saving = true; s.error = '';
+    try { await repo.remove(id); s.items = s.items.filter(x => x.id !== id); return true; }
+    catch (e) { s.error = e.message; return false; }
+    finally { s.saving = false; }
+  }
+  return { state: s, load, save, remove };
+}
+const paperCtrl = createController(paperRepo);
+const authorCtrl = createController(authorRepo);
+
+/* ============ VIEW ============ */
+const EntityManager = {
+  props: ['singular', 'plural', 'ctrl', 'fields'],
+  setup(props) {
+    const s = props.ctrl.state;
+    const form = reactive({});
+    const editingId = ref(null);
+    const showForm = ref(false);
+    const toDelete = ref(null);
+
+    onMounted(() => { if (!s.loaded) props.ctrl.load(); });
+
+    function openForm(item) {
+      s.formError = '';
+      editingId.value = item ? item.id : null;
+      for (const f of props.fields) form[f.key] = item ? item[f.key] : '';
+      showForm.value = true;
+    }
+    async function submit() {
+      if (await props.ctrl.save(editingId.value, { ...form })) showForm.value = false;
+    }
+    async function confirmDelete() {
+      await props.ctrl.remove(toDelete.value.id);
+      toDelete.value = null;
+    }
+    return { s, form, editingId, showForm, toDelete, openForm, submit, confirmDelete };
+  },
+  template: `
+  <section>
+    <div class="bar">
+      <h2 style="text-transform:capitalize;margin:0">{{ plural }}</h2>
+      <button class="primary" @click="openForm(null)">Add {{ singular }}</button>
+    </div>
+    <div v-if="s.error" class="err">
+      {{ s.error }}
+      <button @click="s.loaded ? (s.error='') : ctrl.load()">{{ s.loaded ? 'Dismiss' : 'Retry' }}</button>
+    </div>
+    <div v-if="s.loading" class="msg">Loading…</div>
+    <div v-else-if="s.loaded && !s.items.length" class="msg">No {{ plural }} yet.</div>
+    <table v-else-if="s.items.length">
+      <thead><tr><th v-for="f in fields" :key="f.key">{{ f.label }}</th><th></th></tr></thead>
+      <tbody>
+        <tr v-for="item in s.items" :key="item.id">
+          <td v-for="f in fields" :key="f.key">{{ item[f.key] }}</td>
+          <td>
+            <button @click="openForm(item)">Edit</button>
+            <button @click="toDelete = item">Delete</button>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div v-if="showForm" class="overlay">
+      <form class="dlg" @submit.prevent="submit" novalidate>
+        <h3>{{ editingId == null ? 'Add' : 'Edit' }} {{ singular }}</h3>
+        <div v-if="s.formError" class="err">{{ s.formError }}</div>
+        <label v-for="f in fields" :key="f.key">{{ f.label }}
+          <input :type="f.type" v-model="form[f.key]">
+        </label>
+        <div class="foot">
+          <button type="button" @click="showForm=false">Cancel</button>
+          <button type="submit" class="primary" :disabled="s.saving">{{ s.saving ? 'Saving…' : 'Save' }}</button>
+        </div>
+      </form>
+    </div>
+
+    <div v-if="toDelete" class="overlay">
+      <div class="dlg">
+        <h3>Delete {{ singular }}?</h3>
+        <p>This will permanently delete this {{ singular }}.</p>
+        <div class="foot">
+          <button @click="toDelete=null">Cancel</button>
+          <button class="danger" :disabled="s.saving" @click="confirmDelete">Delete</button>
+        </div>
+      </div>
+    </div>
+  </section>`
+};
+
+createApp({
+  components: { EntityManager },
+  setup() {
+    const tab = ref('papers');
+    return { tab, paperCtrl, authorCtrl, paperFields, authorFields };
+  }
+}).mount('#app');
+</script>
+</body>
+</html>
