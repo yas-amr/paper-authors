@@ -38,7 +38,7 @@ input,textarea{display:block;width:100%;padding:6px;margin-top:3px;font:inherit;
 <script>
 const { createApp, reactive, ref, onMounted } = Vue;
 
-/* ============ MODEL: in-memory storage ============ */
+
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 class Repository {
@@ -91,7 +91,6 @@ const authorRepo = new Repository([
   { id: 2, name: 'Kenji Mori', email: 'k.mori@example.org', affiliation: 'Hartwell Institute' }
 ], authorFields);
 
-/* ============ CONTROLLER ============ */
 function createController(repo) {
   const s = reactive({ items: [], loaded: false, loading: false, saving: false, error: '', formError: '' });
   async function load() {
@@ -120,7 +119,6 @@ function createController(repo) {
 const paperCtrl = createController(paperRepo);
 const authorCtrl = createController(authorRepo);
 
-/* ============ VIEW ============ */
 const EntityManager = {
   props: ['singular', 'plural', 'ctrl', 'fields'],
   setup(props) {
